@@ -17,6 +17,10 @@ const State = {
 function isShopMode(listId) { return localStorage.getItem("checklist.shop." + listId) === "1"; }
 function setShopMode(listId, on) { localStorage.setItem("checklist.shop." + listId, on ? "1" : "0"); }
 
+// The people filter is remembered per list, per device.
+function loadFilter(listId) { return localStorage.getItem("checklist.filter." + listId) || "all"; }
+function saveFilter(listId, val) { localStorage.setItem("checklist.filter." + listId, val); }
+
 const EMOJIS = ["📝","🏠","🛒","✅","🧹","🍳","🧺","💼","✈️","🎁","💪","📚","🐱","🌱","🔧","💡"];
 const COLORS = ["indigo","emerald","rose","amber","sky","violet","slate"];
 const AV_PALETTE = ["#4f46e5","#0f9d78","#e2445c","#e08a00","#2f8fd8","#8b5cf6","#d4428a"];
@@ -154,7 +158,7 @@ function renderFilterBar(list) {
     b.className = "filter-chip" + (c.plain ? " plain" : "") + (State.filter === c.key ? " active" : "");
     b.innerHTML = (c.av ? avatarHTML(c.av, "av") : "") +
       `<span>${esc(c.label)}</span><span class="fc-count">${c.count}</span>`;
-    b.onclick = () => { State.filter = c.key; render(); };
+    b.onclick = () => { saveFilter(list.id, c.key); State.filter = c.key; render(); };
     bar.appendChild(b);
   });
 }
@@ -221,6 +225,7 @@ function renderMain() {
   $("#progress-fill").style.width = pct + "%";
   $("#progress-text").textContent = isShopping ? `${doneCount}/${total} bought` : `${doneCount}/${total}`;
 
+  State.filter = loadFilter(l.id);
   renderFilterBar(l);
 
   // People filters apply to task lists only; other kinds always show everything.
@@ -361,7 +366,6 @@ function changeQty(it, delta) {
 function selectList(id) {
   State.currentId = id;
   localStorage.setItem("checklist.current", id);
-  State.filter = "all";
   closeSidebar();
   render();
 }
@@ -747,7 +751,7 @@ function init() {
   connectWS();
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register(BASE + "sw.js?v=5").catch(() => {});
+    navigator.serviceWorker.register(BASE + "sw.js?v=6").catch(() => {});
   }
 }
 
