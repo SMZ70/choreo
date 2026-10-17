@@ -1,0 +1,15 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# App data (never commit the database)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Backups and local junk
+*.bak
+*.bak-*
+.DS_Store

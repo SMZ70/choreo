@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#4f46e5" />
+  <title>Shared Checklist</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="styles.css?v=5" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar / list rail -->
+    <aside id="sidebar">
+      <div class="brand">
+        <span class="brand-mark">✓</span>
+        <span class="brand-name">Checklist</span>
+      </div>
+      <nav id="list-nav"></nav>
+      <button id="add-list-btn" class="add-list">
+        <span>＋</span> New list
+      </button>
+      <div class="sidebar-footer">
+        <button id="who-btn" class="who-btn" title="Switch user">
+          <span class="who-avatar" id="who-avatar">?</span>
+          <span class="who-name" id="who-name">Pick name</span>
+        </button>
+        <span class="conn" id="conn" title="Live connection">●</span>
+      </div>
+    </aside>
+
+    <!-- Main panel -->
+    <main id="main">
+      <header id="list-header">
+        <button id="menu-btn" class="icon-btn only-mobile" aria-label="Menu">☰</button>
+        <div class="list-title">
+          <span id="list-emoji" class="list-emoji">📝</span>
+          <h1 id="list-name">—</h1>
+        </div>
+        <div class="list-actions">
+          <div class="progress-wrap" id="progress-wrap">
+            <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+            <span class="progress-text" id="progress-text"></span>
+          </div>
+          <button id="shop-mode-btn" class="shop-mode-btn hidden">🛒 <span class="sm-label">Shopping mode</span></button>
+          <button id="list-menu-btn" class="icon-btn" aria-label="List options">⋯</button>
+        </div>
+      </header>
+
+      <div id="add-item-row">
+        <input id="item-input" type="text" placeholder="Add an item and press Enter…" autocomplete="off" dir="auto" />
+        <div id="qty-widget" class="qty-widget hidden" title="Quantity for the next item">
+          <button id="qty-minus" class="qty-btn" aria-label="Less">−</button>
+          <span id="qty-value">1</span>
+          <button id="qty-plus" class="qty-btn" aria-label="More">＋</button>
+        </div>
+        <button id="assign-btn" class="assign-btn" title="Assign the next item to someone"><span class="av" id="assign-av">·</span><span id="assign-label">Anyone</span></button>
+        <button id="add-item-btn" class="primary">Add</button>
+      </div>
+
+      <div id="filter-bar"></div>
+
+      <ul id="items"></ul>
+      <div id="empty-state" class="empty hidden">
+        <div class="empty-emoji">🎉</div>
+        <p>Nothing here yet. Add your first item above.</p>
+      </div>
+    </main>
+  </div>
+
+  <!-- List options popover -->
+  <div id="list-menu" class="popover hidden">
+    <button data-act="edit">✏️ Edit list</button>
+    <button data-act="clear">🧹 Clear completed</button>
+    <button data-act="delete" class="danger">🗑️ Delete list</button>
+  </div>
+
+  <!-- Modal (create/edit list, identity) -->
+  <div id="modal-backdrop" class="modal-backdrop hidden">
+    <div id="modal" class="modal"></div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js?v=5"></script>
+</body>
+</html>
