@@ -21,6 +21,20 @@ function setShopMode(listId, on) { localStorage.setItem("checklist.shop." + list
 function loadFilter(listId) { return localStorage.getItem("checklist.filter." + listId) || "all"; }
 function saveFilter(listId, val) { localStorage.setItem("checklist.filter." + listId, val); }
 
+// Subtask collapse state, per item, per device. Expanded by default.
+function isCollapsed(itemId) { return localStorage.getItem("checklist.collapse." + itemId) === "1"; }
+function setCollapsed(itemId, on) { localStorage.setItem("checklist.collapse." + itemId, on ? "1" : "0"); }
+
+// --- Tree helpers (one level deep) ---
+function childrenOf(list, parentId) {
+  return list.items
+    .filter((i) => i.parent_id === parentId)
+    .sort((a, b) => (a.position || 0) - (b.position || 0));
+}
+function hasChildren(list, itemId) { return list.items.some((i) => i.parent_id === itemId); }
+// "Leaves" are the things you actually tick: childless top-level items + all children.
+function leavesOf(list) { return list.items.filter((i) => !hasChildren(list, i.id)); }
+
 const EMOJIS = ["📝","🏠","🛒","✅","🧹","🍳","🧺","💼","✈️","🎁","💪","📚","🐱","🌱","🔧","💡"];
 const COLORS = ["indigo","emerald","rose","amber","sky","violet","slate"];
 const AV_PALETTE = ["#4f46e5","#0f9d78","#e2445c","#e08a00","#2f8fd8","#8b5cf6","#d4428a"];
@@ -141,7 +155,7 @@ function renderFilterBar(list) {
   // People filters only make sense for task lists.
   if (!list || list.kind !== "tasks") { bar.classList.add("hidden"); return; }
   bar.classList.remove("hidden");
-  const active = list.items.filter((i) => !i.done);
+  const active = leavesOf(list).filter((i) => !i.done);
   const countFor = (pred) => active.filter(pred).length;
 
   const chips = [];
@@ -167,7 +181,7 @@ function renderNav() {
   const nav = $("#list-nav");
   nav.innerHTML = "";
   State.lists.forEach((l) => {
-    const open = l.items.filter((i) => !i.done).length;
+    const open = leavesOf(l).filter((i) => !i.done).length;
     const btn = document.createElement("button");
     btn.className = "list-link" + (l.id === State.currentId ? " active" : "");
     btn.draggable = true;
@@ -218,8 +232,10 @@ function renderMain() {
     : (isTasks ? "Add a task and press Enter…" : "Add an item and press Enter…");
   items.classList.toggle("shopping", shopMode);
 
-  const total = l.items.length;
-  const doneCount = l.items.filter((i) => i.done).length;
+  // Progress counts the leaves (what you actually tick), not container parents.
+  const leaves = leavesOf(l);
+  const total = leaves.length;
+  const doneCount = leaves.filter((i) => i.done).length;
   const pct = total ? Math.round((doneCount / total) * 100) : 0;
   $("#progress-wrap").classList.toggle("hidden", total === 0);
   $("#progress-fill").style.width = pct + "%";
@@ -228,19 +244,25 @@ function renderMain() {
   State.filter = loadFilter(l.id);
   renderFilterBar(l);
 
-  // People filters apply to task lists only; other kinds always show everything.
-  const visible = isTasks ? l.items.filter(itemMatchesFilter) : l.items.slice();
-  const active = visible.filter((i) => !i.done).sort((a, b) => (a.position || 0) - (b.position || 0));
-  const done = visible.filter((i) => i.done).sort((a, b) => (b.done_at || 0) - (a.done_at || 0));
+  // Only top-level items drive the sections. A parent matches the filter if it
+  // or any of its children match (children render under it for context).
+  const topMatches = (it) => {
+    if (!isTasks) return true;
+    if (itemMatchesFilter(it)) return true;
+    return childrenOf(l, it.id).some(itemMatchesFilter);
+  };
+  const top = l.items.filter((i) => !i.parent_id && topMatches(i));
+  const active = top.filter((i) => !i.done).sort((a, b) => (a.position || 0) - (b.position || 0));
+  const done = top.filter((i) => i.done).sort((a, b) => (b.done_at || 0) - (a.done_at || 0));
 
-  $("#empty-state").classList.toggle("hidden", visible.length !== 0);
-  if (visible.length === 0) {
+  $("#empty-state").classList.toggle("hidden", top.length !== 0);
+  if (top.length === 0) {
     $("#empty-state").querySelector("p").textContent =
-      total === 0 ? "Nothing here yet. Add your first item above."
-                  : "No items match this filter.";
+      l.items.length === 0 ? "Nothing here yet. Add your first item above."
+                           : "No items match this filter.";
   }
 
-  active.forEach((it) => items.appendChild(renderItem(it, l)));
+  active.forEach((it) => appendItemTree(items, it, l));
 
   if (done.length) {
     const divider = document.createElement("li");
@@ -253,20 +275,76 @@ function renderMain() {
     };
     items.appendChild(divider);
     if (!State.collapseDone) {
-      done.forEach((it) => items.appendChild(renderItem(it, l)));
+      done.forEach((it) => appendItemTree(items, it, l));
     }
   }
+}
+
+// Which parent currently has its inline "add subtask" input open (null = none).
+let addSubtaskFor = null;
+
+function appendItemTree(container, it, l) {
+  container.appendChild(renderItem(it, l));
+  const kids = childrenOf(l, it.id);
+  const adding = addSubtaskFor === it.id;              // force-expand while adding
+  if ((kids.length && !isCollapsed(it.id)) || adding) {
+    kids.forEach((ch) => container.appendChild(renderItem(ch, l)));
+    if (adding) container.appendChild(renderSubtaskInput(it, l));
+  }
+}
+
+function renderSubtaskInput(parent, l) {
+  const li = document.createElement("li");
+  li.className = "item child subtask-input-row";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "subtask-input";
+  input.dir = "auto";
+  input.placeholder = "Add a subtask, Enter to save…";
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const v = input.value.trim();
+      if (!v) return;
+      input.value = "";
+      api(`/api/lists/${l.id}/items`, {
+        method: "POST",
+        body: JSON.stringify({ text: v, by: State.user || "", parent_id: parent.id }),
+      }).then(refresh).catch(() => toast("Could not add subtask"));
+    } else if (e.key === "Escape") {
+      addSubtaskFor = null;
+      render();
+    }
+  };
+  li.appendChild(input);
+  setTimeout(() => input.focus(), 0);
+  return li;
 }
 
 function renderItem(it, list) {
   const isShopping = list.kind === "shopping";
   const isTasks = list.kind === "tasks";
   const shopMode = isShopping && isShopMode(list.id);
+  const isChild = !!it.parent_id;
+  const kids = childrenOf(list, it.id);
+  const isParentRow = kids.length > 0;
+  const doneKids = kids.filter((k) => k.done).length;
 
   const li = document.createElement("li");
-  li.className = "item" + (it.done ? " done" : "");
+  li.className = "item" + (it.done ? " done" : "") + (isChild ? " child" : "") + (isParentRow ? " parent" : "");
   li.dataset.id = it.id;
+  li.dataset.parent = it.parent_id || "root";
   li.draggable = !it.done && !shopMode;
+
+  // Chevron to collapse/expand a parent; a spacer keeps leaf rows aligned.
+  const chevron = document.createElement("span");
+  chevron.className = "twisty";
+  if (isParentRow) {
+    chevron.textContent = "▾";
+    chevron.classList.toggle("collapsed", isCollapsed(it.id));
+    chevron.title = "Collapse / expand";
+    chevron.onclick = (e) => { e.stopPropagation(); setCollapsed(it.id, !isCollapsed(it.id)); render(); };
+  }
 
   const grip = document.createElement("span");
   grip.className = "grip";
@@ -277,6 +355,8 @@ function renderItem(it, list) {
   cb.type = "checkbox";
   cb.className = "check";
   cb.checked = it.done;
+  // A parent's box is derived: checked when all children done, dash when some.
+  if (isParentRow) cb.indeterminate = doneKids > 0 && doneKids < kids.length;
   cb.onchange = () => toggleItem(it, cb.checked);
 
   const body = document.createElement("div");
@@ -300,8 +380,11 @@ function renderItem(it, list) {
 
   const meta = document.createElement("div");
   meta.className = "item-meta";
-  if (isTasks) {
-    // Assignee chip (click to reassign)
+  if (isParentRow) {
+    meta.insertAdjacentHTML("beforeend", `<span class="subprog">${doneKids}/${kids.length}</span>`);
+  }
+  // Assignee lives on the things you actually do (leaves), not container parents.
+  if (isTasks && !isParentRow) {
     const chip = document.createElement("span");
     chip.className = "assignee-chip" + (it.assignee ? "" : " unassigned");
     chip.innerHTML = it.assignee
@@ -317,11 +400,24 @@ function renderItem(it, list) {
     };
     meta.appendChild(chip);
   }
+  // "+ subtask" on top-level items of task/general lists.
+  if (!isShopping && !isChild) {
+    const addSub = document.createElement("button");
+    addSub.className = "add-sub";
+    addSub.textContent = "＋ subtask";
+    addSub.onclick = (e) => {
+      e.stopPropagation();
+      addSubtaskFor = it.id;
+      setCollapsed(it.id, false);
+      render();
+    };
+    meta.appendChild(addSub);
+  }
   if (it.done && it.done_by) meta.insertAdjacentHTML("beforeend", `<span class="tag">✓ ${esc(it.done_by)}</span>`);
-  else if (it.created_by) meta.insertAdjacentHTML("beforeend", `<span class="tag">added by ${esc(it.created_by)}</span>`);
+  else if (!isParentRow && it.created_by) meta.insertAdjacentHTML("beforeend", `<span class="tag">added by ${esc(it.created_by)}</span>`);
   if (meta.childNodes.length) body.appendChild(meta);
 
-  li.append(grip, cb, body);
+  li.append(chevron, grip, cb, body);
 
   // Quantity stepper for shopping lists
   if (isShopping) {
@@ -340,7 +436,11 @@ function renderItem(it, list) {
   del.className = "item-del";
   del.textContent = "✕";
   del.title = "Delete";
-  del.onclick = (e) => { e.stopPropagation(); deleteItem(it); };
+  del.onclick = (e) => {
+    e.stopPropagation();
+    if (isParentRow && !confirm(`Delete "${it.text}" and its ${kids.length} subtask(s)?`)) return;
+    deleteItem(it);
+  };
   li.appendChild(del);
 
   if (shopMode) {
@@ -449,7 +549,9 @@ function attachItemDrag(li, list) {
   li.addEventListener("dragend", () => {
     li.classList.remove("dragging");
     $$(".item").forEach((x) => x.classList.remove("drop-before"));
-    const order = $$("#items .item:not(.done)").map((x) => x.dataset.id);
+    // Reorder only within the same sibling scope (same parent, or top-level).
+    const scope = li.dataset.parent;
+    const order = $$(`#items .item[data-parent="${scope}"]:not(.done)`).map((x) => x.dataset.id);
     api(`/api/lists/${list.id}/items/reorder`, { method: "POST", body: JSON.stringify({ order }) })
       .then(refresh).catch(() => {});
     dragEl = null;
@@ -457,6 +559,7 @@ function attachItemDrag(li, list) {
   li.addEventListener("dragover", (e) => {
     e.preventDefault();
     if (!dragEl || dragEl === li) return;
+    if (li.dataset.parent !== dragEl.dataset.parent) return;  // don't cross scopes
     const box = li.getBoundingClientRect();
     const before = e.clientY < box.top + box.height / 2;
     $$(".item").forEach((x) => x.classList.remove("drop-before"));
@@ -769,7 +872,7 @@ function init() {
   connectWS();
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register(BASE + "sw.js?v=7").catch(() => {});
+    navigator.serviceWorker.register(BASE + "sw.js?v=8").catch(() => {});
   }
 }
 

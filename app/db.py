@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS items (
     done_by    TEXT NOT NULL DEFAULT '',
     assignee   TEXT NOT NULL DEFAULT '',
     qty        INTEGER NOT NULL DEFAULT 1,
+    parent_id  TEXT,
     created_at REAL NOT NULL,
     done_at    REAL
 );
@@ -83,6 +84,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE items ADD COLUMN assignee TEXT NOT NULL DEFAULT ''")
     if "qty" not in cols:
         conn.execute("ALTER TABLE items ADD COLUMN qty INTEGER NOT NULL DEFAULT 1")
+    if "parent_id" not in cols:
+        conn.execute("ALTER TABLE items ADD COLUMN parent_id TEXT")
+    # Create the index after the column is guaranteed to exist (fresh or migrated).
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_items_parent ON items(parent_id)")
 
 
 def init() -> None:
@@ -191,21 +196,53 @@ def reorder_lists(order: list[str]) -> None:
 # Item mutations
 # ---------------------------------------------------------------------------
 
-def create_item(list_id: str, text: str, note: str, by: str, assignee: str = "", qty: int = 1) -> str | None:
+def _set_done(conn: sqlite3.Connection, iid: str, done: int, by: str) -> None:
+    conn.execute(
+        "UPDATE items SET done=?, done_by=?, done_at=? WHERE id=?",
+        (1 if done else 0, by if done else "", _now() if done else None, iid),
+    )
+
+
+def _reconcile_parent(conn: sqlite3.Connection, parent_id: str, by: str) -> None:
+    """A parent's done state is derived: done only when all its children are."""
+    rows = conn.execute("SELECT done FROM items WHERE parent_id=?", (parent_id,)).fetchall()
+    if not rows:
+        return
+    all_done = all(r["done"] for r in rows)
+    _set_done(conn, parent_id, 1 if all_done else 0, by)
+
+
+def create_item(list_id: str, text: str, note: str, by: str,
+                assignee: str = "", qty: int = 1, parent_id: str | None = None) -> str | None:
     with _LOCK:
         conn = connect()
         exists = conn.execute("SELECT 1 FROM lists WHERE id=?", (list_id,)).fetchone()
         if not exists:
             return None
-        pos = conn.execute(
-            "SELECT COALESCE(MAX(position),-1)+1 AS p FROM items WHERE list_id=?", (list_id,)
-        ).fetchone()["p"]
+        # Enforce one level of nesting: a parent must exist, belong to this list,
+        # and itself be top-level. Otherwise the new item is created top-level.
+        if parent_id:
+            p = conn.execute("SELECT parent_id, list_id FROM items WHERE id=?", (parent_id,)).fetchone()
+            if not p or p["list_id"] != list_id or p["parent_id"]:
+                parent_id = None
+        if parent_id:
+            pos = conn.execute(
+                "SELECT COALESCE(MAX(position),-1)+1 AS p FROM items WHERE parent_id=?", (parent_id,)
+            ).fetchone()["p"]
+        else:
+            pos = conn.execute(
+                "SELECT COALESCE(MAX(position),-1)+1 AS p FROM items WHERE list_id=? AND parent_id IS NULL",
+                (list_id,),
+            ).fetchone()["p"]
         iid = new_id()
         conn.execute(
-            "INSERT INTO items(id,list_id,text,note,position,created_by,assignee,qty,created_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?)",
-            (iid, list_id, text, note, pos, by, assignee, max(1, int(qty)), _now()),
+            "INSERT INTO items(id,list_id,text,note,position,created_by,assignee,qty,parent_id,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (iid, list_id, text, note, pos, by, assignee, max(1, int(qty)), parent_id, _now()),
         )
+        # A fresh (undone) child reopens a previously-complete parent.
+        if parent_id:
+            _reconcile_parent(conn, parent_id, by)
         conn.commit()
         return iid
 
@@ -227,22 +264,35 @@ def update_item(item_id: str, fields: dict[str, Any], by: str) -> None:
             sets["qty"] = max(1, int(fields["qty"]))
         if "position" in fields and fields["position"] is not None:
             sets["position"] = fields["position"]
+        if sets:
+            cols = ", ".join(f"{k}=?" for k in sets)
+            conn.execute(f"UPDATE items SET {cols} WHERE id=?", (*sets.values(), item_id))
+
+        # Done is handled separately so it can cascade across parent/children.
         if "done" in fields and fields["done"] is not None:
             done = 1 if fields["done"] else 0
-            sets["done"] = done
-            sets["done_by"] = by if done else ""
-            sets["done_at"] = _now() if done else None
-        if not sets:
-            return
-        cols = ", ".join(f"{k}=?" for k in sets)
-        conn.execute(f"UPDATE items SET {cols} WHERE id=?", (*sets.values(), item_id))
+            children = conn.execute("SELECT id FROM items WHERE parent_id=?", (item_id,)).fetchall()
+            if children:
+                # Toggling a parent toggles all of its children, then itself.
+                for ch in children:
+                    _set_done(conn, ch["id"], done, by)
+                _set_done(conn, item_id, done, by)
+            else:
+                _set_done(conn, item_id, done, by)
+                if row["parent_id"]:
+                    _reconcile_parent(conn, row["parent_id"], by)
         conn.commit()
 
 
 def delete_item(item_id: str) -> None:
     with _LOCK:
         conn = connect()
+        row = conn.execute("SELECT parent_id FROM items WHERE id=?", (item_id,)).fetchone()
+        # Cascade: remove any children, then the item itself.
+        conn.execute("DELETE FROM items WHERE parent_id=?", (item_id,))
         conn.execute("DELETE FROM items WHERE id=?", (item_id,))
+        if row and row["parent_id"]:
+            _reconcile_parent(conn, row["parent_id"], "")
         conn.commit()
 
 
@@ -250,6 +300,11 @@ def clear_completed(list_id: str) -> int:
     with _LOCK:
         conn = connect()
         cur = conn.execute("DELETE FROM items WHERE list_id=? AND done=1", (list_id,))
+        # A parent that lost some done children may need its state recomputed.
+        for p in conn.execute(
+            "SELECT DISTINCT parent_id FROM items WHERE list_id=? AND parent_id IS NOT NULL", (list_id,)
+        ).fetchall():
+            _reconcile_parent(conn, p["parent_id"], "")
         conn.commit()
         return cur.rowcount
 

@@ -106,6 +106,7 @@ class ItemCreate(BaseModel):
     by: str = Field(default="", max_length=40)
     assignee: str = Field(default="", max_length=40)
     qty: int = Field(default=1, ge=1, le=9999)
+    parent_id: str | None = Field(default=None, max_length=32)
 
 
 class ItemPatch(BaseModel):
@@ -161,7 +162,8 @@ async def api_reorder_lists(body: Order) -> dict:
 
 @app.post("/api/lists/{list_id}/items")
 async def api_create_item(list_id: str, body: ItemCreate) -> dict:
-    iid = db.create_item(list_id, body.text.strip(), body.note.strip(), body.by, body.assignee, body.qty)
+    iid = db.create_item(list_id, body.text.strip(), body.note.strip(), body.by,
+                         body.assignee, body.qty, body.parent_id)
     if iid is None:
         return JSONResponse({"error": "list not found"}, status_code=404)
     await push_state()
