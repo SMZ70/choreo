@@ -313,12 +313,14 @@ body {
 
 /* ---------------- Subtasks ---------------- */
 .twisty {
-  width: 18px; min-width: 18px; display: inline-grid; place-items: center;
-  color: var(--text-dim); cursor: pointer; font-size: 11px; padding-top: 3px;
-  transition: transform .15s; user-select: none;
+  width: 30px; min-width: 30px; height: 32px; display: inline-grid; place-items: center;
+  color: var(--text-dim); cursor: pointer; font-size: 15px; border-radius: 8px;
+  align-self: center; transition: background .12s, color .12s; user-select: none;
 }
-.twisty.collapsed { transform: rotate(-90deg); }
-.twisty:hover { color: var(--accent); }
+.item.parent > .twisty:hover { color: var(--accent); background: var(--surface-2); }
+.item.parent > .twisty { color: var(--accent); }
+.twisty > span { display: inline-block; transition: transform .15s; }
+.twisty.collapsed > span { transform: rotate(-90deg); }
 
 .item.child {
   margin-left: 32px;

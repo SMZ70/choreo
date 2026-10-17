@@ -340,7 +340,7 @@ function renderItem(it, list) {
   const chevron = document.createElement("span");
   chevron.className = "twisty";
   if (isParentRow) {
-    chevron.textContent = "▾";
+    chevron.innerHTML = "<span>▾</span>";
     chevron.classList.toggle("collapsed", isCollapsed(it.id));
     chevron.title = "Collapse / expand";
     chevron.onclick = (e) => { e.stopPropagation(); setCollapsed(it.id, !isCollapsed(it.id)); render(); };
@@ -877,7 +877,7 @@ function init() {
   connectWS();
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register(BASE + "sw.js?v=9").catch(() => {});
+    navigator.serviceWorker.register(BASE + "sw.js?v=10").catch(() => {});
   }
 }
 
