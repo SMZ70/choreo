@@ -305,7 +305,7 @@ function renderSubtaskInput(parent, l) {
     if (e.key === "Enter") {
       e.preventDefault();
       const v = input.value.trim();
-      if (!v) return;
+      if (!v) { addSubtaskFor = null; render(); return; }   // empty Enter closes it
       input.value = "";
       api(`/api/lists/${l.id}/items`, {
         method: "POST",
@@ -863,6 +863,11 @@ function init() {
   document.addEventListener("click", (e) => {
     if (!e.target.closest("#list-menu") && !e.target.closest("#list-menu-btn")) closeListMenu();
     if (!e.target.closest(".people-pop") && !e.target.closest(".assignee-chip") && !e.target.closest("#assign-btn")) closePeoplePopover();
+    // Tapping away from an open "add subtask" box closes it.
+    if (addSubtaskFor && !e.target.closest(".subtask-input-row") && !e.target.closest(".add-sub")) {
+      addSubtaskFor = null;
+      render();
+    }
   });
   $("#modal-backdrop").onclick = (e) => { if (e.target.id === "modal-backdrop" && State.user) closeModal(); };
 
@@ -872,7 +877,7 @@ function init() {
   connectWS();
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register(BASE + "sw.js?v=8").catch(() => {});
+    navigator.serviceWorker.register(BASE + "sw.js?v=9").catch(() => {});
   }
 }
 
