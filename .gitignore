@@ -13,3 +13,6 @@ data/
 *.bak
 *.bak-*
 .DS_Store
+
+# Deployment-specific identity remap (never commit the real one)
+static/identity-aliases.json

@@ -707,8 +707,26 @@ function closeSidebar() {
 // ---------------------------------------------------------------------------
 // Wire up
 // ---------------------------------------------------------------------------
+// Optional, deployment-specific identity remapping. If a deployment renames a
+// person, drop an identity-aliases.json next to the app ({"Old":"New"}) and
+// devices still holding the old name self-heal on load. Absent by default.
+function applyIdentityAliases() {
+  fetch(BASE + "identity-aliases.json", { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((map) => {
+      if (map && State.user && map[State.user]) {
+        State.user = map[State.user];
+        localStorage.setItem("checklist.user", State.user);
+        updateWho();
+        render();
+      }
+    })
+    .catch(() => {});
+}
+
 function init() {
   updateWho();
+  applyIdentityAliases();
   $("#add-item-btn").onclick = addItem;
   $("#item-input").onkeydown = (e) => { if (e.key === "Enter") addItem(); };
   $("#add-list-btn").onclick = () => openListModal(null);
@@ -751,7 +769,7 @@ function init() {
   connectWS();
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register(BASE + "sw.js?v=6").catch(() => {});
+    navigator.serviceWorker.register(BASE + "sw.js?v=7").catch(() => {});
   }
 }
 

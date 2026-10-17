@@ -2,7 +2,7 @@
 // stale app shell, with a cache fallback for offline viewing. API and
 // WebSocket traffic are never cached. Paths are relative to the SW scope so
 // the app works whether it's served at "/" or under a long sub-path.
-const CACHE = "checklist-v6";
+const CACHE = "checklist-v7";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "icon.svg", "manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
